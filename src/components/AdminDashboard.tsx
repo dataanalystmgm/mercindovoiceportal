@@ -1,0 +1,1599 @@
+import React, { useState, useEffect } from 'react';
+import { User, Aspirasi, ProgressStatus } from '../types';
+import { Shield, Eye, EyeOff, CheckSquare, Users, Edit2, AlertCircle, FileText, CheckCircle, RefreshCw, Send, ArrowRight, Settings, Bell, Smartphone, Activity, Info, AlertTriangle, MessageSquare, Database, Copy, Check } from 'lucide-react';
+
+const getTopicBadgeStyle = (topic: string) => {
+  const t = (topic || '').toLowerCase();
+  if (t.includes('fasilitas')) return 'bg-sky-50 text-sky-700 border border-sky-200';
+  if (t.includes('hubungan')) return 'bg-violet-50 text-violet-700 border border-violet-200';
+  if (t.includes('lingkungan kerja') || t.includes('lingkungan_kerja')) return 'bg-teal-50 text-teal-700 border border-teal-200';
+  if (t.includes('happiness') || t.includes('bahagia')) return 'bg-pink-50 text-pink-700 border border-pink-200';
+  if (t.includes('peraturan') || t.includes('kebijakan')) return 'bg-orange-50 text-orange-700 border border-orange-200';
+  if (t.includes('harassment') || t.includes('sexual')) return 'bg-red-50 text-red-700 border border-red-200';
+  if (t.includes('standar')) return 'bg-slate-100 text-slate-700 border border-slate-300';
+  
+  if (t.includes('produktivitas')) return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+  if (t.includes('quality') || t.includes('mutu')) return 'bg-rose-50 text-rose-700 border border-rose-200';
+  if (t.includes('management') || t.includes('manajemen') || t.includes('system')) return 'bg-blue-50 text-blue-700 border border-blue-200';
+  if (t.includes('5s')) return 'bg-amber-50 text-amber-700 border border-amber-200';
+  if (t.includes('human') || t.includes('orang')) return 'bg-indigo-50 text-indigo-700 border border-indigo-200';
+  if (t.includes('environment')) return 'bg-lime-50 text-lime-700 border border-lime-200';
+  
+  return 'bg-gray-50 text-gray-600 border border-gray-200';
+};
+
+const googleAppsScriptCode = `// ========================================================
+// KONFIGURASI GOOGLE APPS SCRIPT (ASPIRASI SYSTEM)
+// ========================================================
+// ID Folder Google Drive tempat menyimpan lampiran gambar (opsional). 
+var FOLDER_ID = '16cJX95wRYac4Yg1yL5kyFjDO2GikD6CY';
+
+// ========================================================
+// PENTING: Untuk mengaktifkan fitur upload file gambar/foto,
+// Anda WAJIB memberikan izin akses Google Drive.
+// Caranya:
+// 1. Pilih fungsi "setupPermissions" di dropdown menu atas.
+// 2. Klik tombol "Jalankan" atau "Run".
+// 3. Ikuti prompt popup untuk memberikan izin akun Anda.
+// 4. Setelah sukses, lakukan "Deploy" -> "New Deployment" ulang.
+// ========================================================
+function setupPermissions() {
+  try {
+    DriveApp.getFiles().hasNext();
+  } catch(e) {}
+}
+
+function doGet(e) {
+  try {
+    initializeSheets();
+    var action = e.parameter.action;
+    var table = e.parameter.table;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (action === 'read') {
+      var sheet = ss.getSheetByName(table);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+      }
+      var data = sheet.getDataRange().getValues();
+      if (data.length <= 1) {
+        return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+      }
+      var headers = data[0];
+      var list = [];
+      for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        var obj = {};
+        for (var j = 0; j < headers.length; j++) {
+          var val = row[j];
+          if (typeof val === 'string' && (val.indexOf('[') === 0 || val.indexOf('{') === 0)) {
+            try {
+              val = JSON.parse(val);
+            } catch(err) {}
+          }
+          obj[headers[j]] = val;
+        }
+        list.push(obj);
+      }
+      return ContentService.createTextOutput(JSON.stringify(list)).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ error: 'Invalid action' })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doPost(e) {
+  try {
+    initializeSheets();
+    var params = JSON.parse(e.postData.contents);
+    var action = params.action;
+    var table = params.table;
+    var data = params.data;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (action === 'uploadFile') {
+      try {
+        var result = uploadFileToDrive(data.base64, data.type, data.name);
+        return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+      } catch(err) {
+        return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
+    var sheet = ss.getSheetByName(table);
+    if (!sheet) {
+      sheet = ss.insertSheet(table);
+    }
+    
+    if (action === 'write') {
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0] || [];
+      
+      if (headers.length === 0) {
+        headers = Object.keys(data);
+        sheet.appendRow(headers);
+        rows = [headers];
+      } else {
+        var updatedHeaders = [...headers];
+        var keys = Object.keys(data);
+        var headersChanged = false;
+        keys.forEach(function(key) {
+          if (updatedHeaders.indexOf(key) === -1) {
+            updatedHeaders.push(key);
+            headersChanged = true;
+          }
+        });
+        if (headersChanged) {
+          headers = updatedHeaders;
+          sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        }
+      }
+      
+      var idIndex = headers.indexOf('id');
+      if (idIndex === -1) {
+        headers.push('id');
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        idIndex = headers.length - 1;
+      }
+      
+      var targetRowIdx = -1;
+      for (var i = 1; i < rows.length; i++) {
+        if (rows[i][idIndex] === data.id) {
+          targetRowIdx = i + 1;
+          break;
+        }
+      }
+      
+      var rowValues = headers.map(function(header) {
+        var val = data[header];
+        if (val === undefined || val === null) return '';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return val;
+      });
+      
+      if (targetRowIdx !== -1) {
+        sheet.getRange(targetRowIdx, 1, 1, rowValues.length).setValues([rowValues]);
+      } else {
+        sheet.appendRow(rowValues);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Row saved' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    if (action === 'delete') {
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0] || [];
+      var idIndex = headers.indexOf('id');
+      if (idIndex !== -1) {
+        for (var i = 1; i < rows.length; i++) {
+          if (rows[i][idIndex] === params.id) {
+            sheet.deleteRow(i + 1);
+            return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Row deleted' })).setMimeType(ContentService.MimeType.JSON);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'ID not found' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ error: 'Unknown action' })).setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function initializeSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  var sheetsConfig = {
+    'users': ['id', 'email', 'password', 'name', 'role', 'department', 'createdAt', 'status', 'nik'],
+    'aspirasi': ['id', 'trackingCode', 'title', 'content', 'originalClassification', 'photoUrl', 'aiClassification', 'aiReason', 'topic', 'isPublic', 'isReviewed', 'status', 'authorId', 'authorName', 'anonymous', 'feedback', 'correctiveAction', 'targetCompletionDate', 'createdAt', 'updatedAt', 'progressHistory'],
+    'pics': ['id', 'nik', 'name', 'section', 'email', 'phone', 'category', 'status', 'createdAt']
+  };
+  
+  for (var name in sheetsConfig) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+    var values = sheet.getDataRange().getValues();
+    if (values.length === 0 || (values.length === 1 && values[0][0] === '')) {
+      sheet.appendRow(sheetsConfig[name]);
+    } else {
+      var currentHeaders = values[0];
+      var headersToAdd = [];
+      sheetsConfig[name].forEach(function(h) {
+        if (currentHeaders.indexOf(h) === -1) {
+          headersToAdd.push(h);
+        }
+      });
+      if (headersToAdd.length > 0) {
+        var updatedHeaders = currentHeaders.concat(headersToAdd);
+        sheet.getRange(1, 1, 1, updatedHeaders.length).setValues([updatedHeaders]);
+      }
+    }
+  }
+}
+
+function uploadFileToDrive(base64Data, mimeType, originalName) {
+  if (!base64Data) {
+    throw new Error("Data base64 kosong.");
+  }
+  try {
+    // 1. Tentukan ekstensi berdasarkan mimeType
+    var extension = '.png'; // Default
+    if (mimeType) {
+      if (mimeType.indexOf('image/jpeg') !== -1 || mimeType.indexOf('image/jpg') !== -1) {
+        extension = '.jpg';
+      } else if (mimeType.indexOf('image/png') !== -1) {
+        extension = '.png';
+      } else if (mimeType.indexOf('image/gif') !== -1) {
+        extension = '.gif';
+      }
+    }
+
+    // Format datetime string: YYYYMMDD_HHMMSS
+    var now = new Date();
+    var formattedDateTime = now.getFullYear() + 
+                         ("0" + (now.getMonth() + 1)).slice(-2) + 
+                         ("0" + now.getDate()).slice(-2) + "_" + 
+                         ("0" + now.getHours()).slice(-2) + 
+                         ("0" + now.getMinutes()).slice(-2) + 
+                         ("0" + now.getSeconds()).slice(-2);
+    
+    // Nama file sesuai request: ASPIRASI_datetime
+    var fileName = "ASPIRASI_" + formattedDateTime + extension;
+    
+    // 3. Proses decoding base64 & pembuatan blob
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, mimeType || 'image/png', fileName);
+    
+    // 4. Folder tujuan: Gunakan ID Folder dari user
+    var FOLDER_ID = '16cJX95wRYac4Yg1yL5kyFjDO2GikD6CY';
+    var folder;
+    try {
+      folder = DriveApp.getFolderById(FOLDER_ID);
+    } catch (err) {
+      // Fallback jika tidak ditemukan/akses ditolak, buat di root atau gunakan folder name
+      var folderName = "Aspirasi_Lampiran";
+      var folders = DriveApp.getFoldersByName(folderName);
+      if (folders.hasNext()) {
+        folder = folders.next();
+      } else {
+        folder = DriveApp.createFolder(folderName);
+      }
+    }
+    
+    var uploadedFile = folder.createFile(blob);
+    
+    // 5. Set izin akses agar file bisa dilihat oleh Admin/PIC di Dashboard (VIEW)
+    uploadedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    return {
+      success: true,
+      url: uploadedFile.getUrl()
+    };
+  } catch (error) {
+    throw new Error("Gagal mengunggah file ke Google Drive: " + error.toString());
+  }
+}
+`;
+
+interface AdminDashboardProps {
+  currentUser: User;
+}
+
+export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
+  const [submissions, setSubmissions] = useState<Aspirasi[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  
+  // Filtering States for Admin
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'ide' | 'kritik_saran'>('all');
+  const [topicFilter, setTopicFilter] = useState('all');
+  
+  // Form State for updates
+  const [selectedItem, setSelectedItem] = useState<Aspirasi | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<ProgressStatus>('in_progress');
+  const [updateDescription, setUpdateDescription] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [correctiveAction, setCorrectiveAction] = useState('');
+  const [targetCompletionDate, setTargetCompletionDate] = useState('');
+  
+  // PIC assignment details
+  const [picName, setPicName] = useState('');
+  const [picDepartment, setPicDepartment] = useState('');
+  const [picSearchQuery, setPicSearchQuery] = useState('');
+
+  const getTwoDaysFromNow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  };
+
+  const fetchSubmissions = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/aspirasi/all');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Gagal memuat data');
+      setSubmissions(data);
+    } catch (err: any) {
+      setError(err.message || 'Gagal terhubung ke server');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSubmissions();
+    fetchFirebaseStatus();
+  }, []);
+
+  const [firebaseStatus, setFirebaseStatus] = useState<any>(null);
+  const [syncingFirebase, setSyncingFirebase] = useState(false);
+
+  const fetchFirebaseStatus = async () => {
+    try {
+      const response = await fetch('/api/firebase-status');
+      if (response.ok) {
+        const data = await response.json();
+        setFirebaseStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch firebase status', err);
+    }
+  };
+
+  const handleForceSyncFirebase = async () => {
+    setSyncingFirebase(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch('/api/admin/sync-local-to-cloud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccess(data.message || 'Sinkronisasi ke Firebase Cloud berhasil!');
+        fetchFirebaseStatus();
+        fetchPicsList();
+        fetchSubmissions();
+      } else {
+        setError(data.error || 'Gagal melakukan sinkronisasi');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Gagal terhubung ke server');
+    } finally {
+      setSyncingFirebase(false);
+    }
+  };
+
+  // Sub-tab selection: submissions, pics, or settings
+  const [activeSubTab, setActiveSubTab] = useState<'submissions' | 'pics' | 'settings'>('submissions');
+
+  // Google Sheet Web App Server States
+  const [googleSheetWebappUrl, setGoogleSheetWebappUrlState] = useState('');
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [syncingToSheet, setSyncingToSheet] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  const fetchConfig = async () => {
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const data = await res.json();
+        setGoogleSheetWebappUrlState(data.googleSheetWebappUrl || '');
+      }
+    } catch (err) {
+      console.error('Failed to fetch config', err);
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          googleSheetWebappUrl: googleSheetWebappUrl
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan konfigurasi');
+      setSuccess('Konfigurasi server berhasil disimpan!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleSyncToSheet = async () => {
+    const confirmed = window.confirm('Apakah Anda yakin ingin melakukan sinkronisasi semua data lokal saat ini ke Google Sheets? Semua data users, aspirasi, dan PIC akan dikirim ke sheet masing-masing.');
+    if (!confirmed) return;
+
+    setSyncingToSheet(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/admin/sync-to-sheet', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal sinkronisasi data');
+      setSuccess(data.message || 'Sinkronisasi ke Google Sheets berhasil!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSyncingToSheet(false);
+    }
+  };
+
+  // PIC Database States
+  const [pics, setPics] = useState<any[]>([]);
+  const [picLoading, setPicLoading] = useState(false);
+  const [editingPic, setEditingPic] = useState<any | null>(null);
+  const [showPicModal, setShowPicModal] = useState(false);
+  const [picForm, setPicForm] = useState({
+    id: '',
+    nik: '',
+    name: '',
+    section: '',
+    user: '',
+    domain: '',
+    emailPic: '',
+    emailManagerSpv: ''
+  });
+
+  const fetchPicsList = async () => {
+    setPicLoading(true);
+    try {
+      const response = await fetch('/api/pics');
+      if (response.ok) {
+        const data = await response.json();
+        setPics(data);
+      } else {
+        throw new Error('Gagal memuat database PIC dari server.');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPicLoading(false);
+    }
+  };
+
+  const handleSavePic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!picForm.nik || !picForm.name) {
+      setError('NIK dan Nama PIC wajib diisi!');
+      return;
+    }
+    
+    const action = picForm.id ? 'memperbarui' : 'menambahkan';
+    const confirmed = window.confirm(`Apakah Anda yakin ingin ${action} data PIC ini?`);
+    if (!confirmed) return;
+
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/pics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(picForm)
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Gagal menyimpan data PIC');
+      setSuccess('Data PIC berhasil disimpan!');
+      setShowPicModal(false);
+      fetchPicsList();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleDeletePic = async (id: string, name: string) => {
+    const confirmed = window.confirm(`Apakah Anda yakin ingin menghapus data PIC ${name}? Tindakan ini tidak dapat dibatalkan.`);
+    if (!confirmed) return;
+
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch(`/api/pics/${id}`, {
+        method: 'DELETE'
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Gagal menghapus data PIC');
+      setSuccess('Data PIC berhasil dihapus!');
+      fetchPicsList();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleSyncPicsFromGoogleSheet = async () => {
+    const confirmed = window.confirm('Apakah Anda yakin ingin melakukan sinkronisasi ulang dengan Google Sheets? Data yang sudah ada mungkin akan ditimpa atau diperbarui sesuai sheet PIC.');
+    if (!confirmed) return;
+
+    setPicLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/pics/sync', {
+        method: 'POST'
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Gagal sinkronisasi data');
+      setSuccess(result.message || 'Sinkronisasi PIC berhasil!');
+      setPics(result.data || []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPicLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSubmissions();
+    fetchPicsList();
+    fetchConfig();
+  }, []);
+
+  const handleReviewPublish = async (id: string, currentPublicState: boolean) => {
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch(`/api/aspirasi/${id}/review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isPublic: !currentPublicState,
+          reviewerName: currentUser.name
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+
+      setSuccess(`Status publikasi berhasil diperbarui menjadi: ${!currentPublicState ? 'Publik' : 'Privat'}`);
+      fetchSubmissions();
+      
+      // Update selected item in view if opened
+      if (selectedItem && selectedItem.id === id) {
+        setSelectedItem(result.data);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleUpdateStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem) return;
+
+    setError('');
+    setSuccess('');
+    
+    try {
+      const response = await fetch(`/api/aspirasi/${selectedItem.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: updateStatus,
+          picName: picName || selectedItem.picName,
+          picDepartment: picDepartment || selectedItem.picDepartment,
+          description: updateDescription,
+          updatedBy: `${currentUser.name} (${currentUser.role === 'compliance' ? 'Compliance' : 'PIC/Ide Admin'})`,
+          feedback,
+          correctiveAction,
+          targetCompletionDate
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+
+      setSuccess('Status & Tindak lanjut berhasil disimpan!');
+      setUpdateDescription('');
+      setFeedback('');
+      setCorrectiveAction('');
+      setTargetCompletionDate('');
+      setSelectedItem(null);
+      fetchSubmissions();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const selectItemForUpdate = (item: Aspirasi) => {
+    setSelectedItem(item);
+    setUpdateStatus(item.status);
+    setPicName(item.picName || '');
+    setPicDepartment(item.picDepartment || '');
+    setUpdateDescription('');
+    setFeedback(item.feedback || '');
+    setCorrectiveAction(item.correctiveAction || '');
+    setTargetCompletionDate(item.targetCompletionDate || getTwoDaysFromNow());
+  };
+
+  // Filters depending on role, category, and topic
+  const filteredSubmissions = submissions.filter(item => {
+    // Role filter
+    if (currentUser.role === 'pic') {
+      // PIC sees reports assigned to them, or unassigned ones that need action
+      const isAssignedToMe = item.picName === currentUser.name;
+      const isUnassigned = !item.picName;
+      if (!isAssignedToMe && !isUnassigned) return false;
+    }
+
+    // Category filter
+    if (categoryFilter !== 'all' && item.aiClassification !== categoryFilter) {
+      return false;
+    }
+
+    // Topic filter
+    if (topicFilter !== 'all' && item.topic !== topicFilter) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Dashboard Top Header */}
+      <div className="bg-white border border-natural-beige rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 px-2.5 py-1 rounded-md">
+            {currentUser.role.toUpperCase()} PORTAL
+          </span>
+          <h2 className="text-xl font-serif font-bold text-natural-deep mt-2">
+            Halo, {currentUser.name}!
+          </h2>
+          <p className="text-xs text-natural-muted">
+            Departemen: <strong className="text-natural-deep">{currentUser.department || 'Umum'}</strong> • Tanggung jawab Anda tercantum di bawah ini.
+          </p>
+        </div>
+
+        <button
+          id="btn-refresh-dashboard"
+          onClick={fetchSubmissions}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-2 bg-natural-light text-natural-deep hover:bg-natural-border text-xs font-semibold rounded-lg transition"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Segarkan Data
+        </button>
+      </div>
+
+      {success && (
+        <div className="p-3.5 bg-emerald-50 text-emerald-800 text-xs rounded-xl border border-emerald-100">
+          🎉 {success}
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3.5 bg-red-50 text-red-700 text-xs rounded-xl border border-red-100">
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Sub Tabs Navigation */}
+      <div className="flex border-b border-natural-beige gap-2">
+        <button
+          id="tab-view-submissions"
+          type="button"
+          onClick={() => setActiveSubTab('submissions')}
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+            activeSubTab === 'submissions'
+              ? 'border-indigo-600 text-indigo-600 font-bold'
+              : 'border-transparent text-natural-muted hover:text-natural-deep font-medium'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          Daftar Aspirasi ({submissions.length})
+        </button>
+        <button
+          id="tab-view-pics"
+          type="button"
+          onClick={() => {
+            setActiveSubTab('pics');
+            fetchPicsList();
+          }}
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+            activeSubTab === 'pics'
+              ? 'border-indigo-600 text-indigo-600 font-bold'
+              : 'border-transparent text-natural-muted hover:text-natural-deep font-medium'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Database PIC ({pics.length})
+        </button>
+        <button
+          id="tab-view-settings"
+          type="button"
+          onClick={() => {
+            setActiveSubTab('settings');
+            fetchConfig();
+          }}
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+            activeSubTab === 'settings'
+              ? 'border-indigo-600 text-indigo-600 font-bold'
+              : 'border-transparent text-natural-muted hover:text-natural-deep font-medium'
+          }`}
+        >
+          <Database className="w-3.5 h-3.5" />
+          Server & Google Sheets
+        </button>
+      </div>
+
+      {activeSubTab === 'submissions' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main List Column */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h3 className="text-sm font-bold text-natural-deep uppercase tracking-wider flex items-center gap-2">
+              <FileText className="w-4 h-4 text-natural-sage" />
+              Daftar Aspirasi Karyawan ({filteredSubmissions.length})
+            </h3>
+
+            {/* Category and Topic filters dropdowns */}
+            <div className="flex items-center gap-2">
+              <select
+                id="admin-filter-category"
+                className="px-2 py-1.5 border border-gray-200 rounded text-xs bg-white text-natural-deep focus:outline-none"
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value as any);
+                  setTopicFilter('all'); // Reset topic filter when changing category
+                }}
+              >
+                <option value="all">Semua Jenis</option>
+                <option value="ide">💡 Ide & Inovasi</option>
+                <option value="kritik_saran">💬 Kritik & Saran</option>
+              </select>
+
+              <select
+                id="admin-filter-topic"
+                className="px-2 py-1.5 border border-gray-200 rounded text-xs bg-white text-natural-deep focus:outline-none"
+                value={topicFilter}
+                onChange={(e) => setTopicFilter(e.target.value)}
+              >
+                <option value="all">Semua Topik</option>
+                {categoryFilter !== 'kritik_saran' && (
+                  <optgroup label="Topik Ide">
+                    <option value="Produktivitas">Produktivitas</option>
+                    <option value="Quality">Quality</option>
+                    <option value="Management System">Management System</option>
+                    <option value="5S">5S</option>
+                    <option value="Human">Human</option>
+                    <option value="Environment">Environment</option>
+                  </optgroup>
+                )}
+                {categoryFilter !== 'ide' && (
+                  <optgroup label="Topik Kritik/Saran">
+                    <option value="Fasilitas">Fasilitas</option>
+                    <option value="Hubungan Kerja">Hubungan Kerja</option>
+                    <option value="Lingkungan Kerja">Lingkungan Kerja</option>
+                    <option value="Human Happiness">Human Happiness</option>
+                    <option value="Peraturan & Kebijakan">Peraturan & Kebijakan</option>
+                    <option value="Sexual Harrasment">Sexual Harrasment</option>
+                    <option value="Standar Kerja">Standar Kerja</option>
+                  </optgroup>
+                )}
+              </select>
+            </div>
+          </div>
+
+          {filteredSubmissions.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-natural-beige p-8 text-center text-gray-400 text-xs">
+              Tidak ada data laporan atau ide yang perlu ditindaklanjuti saat ini.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredSubmissions.map((item) => (
+                <div
+                  id={`aspirasi-card-${item.id}`}
+                  key={item.id}
+                  onClick={() => selectItemForUpdate(item)}
+                  className={`bg-white rounded-2xl p-5 border transition-all cursor-pointer hover:shadow-md ${
+                    selectedItem?.id === item.id 
+                      ? 'border-natural-sage ring-2 ring-natural-sage/20' 
+                      : 'border-natural-beige'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4 mb-2">
+                    <span className="font-mono text-xs font-bold text-natural-deep bg-natural-light px-2 py-0.5 rounded-md">
+                      {item.trackingCode}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-mono uppercase ${
+                        item.aiClassification === 'ide'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        AI: {item.aiClassification === 'ide' ? '💡 IDE' : '💬 SARAN'}
+                      </span>
+                      
+                      {item.topic && (
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-semibold uppercase ${getTopicBadgeStyle(item.topic)}`}>
+                          {item.topic}
+                        </span>
+                      )}
+                      
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-semibold text-white ${
+                        item.status === 'submitted' ? 'bg-gray-400' :
+                        item.status === 'reviewed' ? 'bg-indigo-600' :
+                        item.status === 'in_progress' ? 'bg-amber-600' :
+                        item.status === 'management' ? 'bg-pink-600' : 'bg-emerald-600'
+                      }`}>
+                        {item.status === 'submitted' ? 'Baru' :
+                         item.status === 'reviewed' ? 'Reviewed' :
+                         item.status === 'in_progress' ? 'Tindak Lanjut' :
+                         item.status === 'management' ? 'Manajemen Puncak' : 'Selesai'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <h4 className="font-bold text-sm text-natural-deep mb-1">{item.title}</h4>
+                  <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed mb-3">{item.content}</p>
+
+                  <div className="flex items-center justify-between text-[10px] text-natural-muted border-t border-gray-50 pt-3">
+                    <span>Oleh: {item.anonymous ? 'Anonim' : (item.authorName || 'Karyawan')}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center gap-1">
+                        {item.isPublic ? (
+                          <span className="text-emerald-700 flex items-center gap-0.5 font-semibold"><Eye className="w-3 h-3" /> Publik</span>
+                        ) : (
+                          <span className="text-gray-400 flex items-center gap-0.5"><EyeOff className="w-3 h-3" /> Privat</span>
+                        )}
+                      </span>
+                      {item.picName && (
+                        <span className="bg-natural-light px-2 py-0.5 rounded text-natural-deep font-medium">
+                          PIC: {item.picName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Action Panel Column */}
+        <div className="lg:col-span-1">
+          {selectedItem ? (
+            <div id="admin-action-box" className="bg-white border border-natural-beige rounded-2xl p-6 shadow-sm sticky top-6 space-y-6">
+              <div>
+                <h3 className="text-sm font-bold text-natural-deep uppercase tracking-wider mb-1">
+                  Tindak Lanjut Laporan
+                </h3>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span className="font-mono text-xs bg-natural-light px-2.5 py-1 rounded font-bold text-gray-600">
+                    {selectedItem.trackingCode}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase ${
+                    selectedItem.aiClassification === 'ide'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-indigo-100 text-indigo-800'
+                  }`}>
+                    {selectedItem.aiClassification === 'ide' ? '💡 IDE' : '💬 SARAN'}
+                  </span>
+                  {selectedItem.topic && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${getTopicBadgeStyle(selectedItem.topic)}`}>
+                      {selectedItem.topic}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Display Current Feedback, Corrective Action & Target Completion if they exist */}
+              {(selectedItem.feedback || selectedItem.correctiveAction || selectedItem.targetCompletionDate) && (
+                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2 text-xs">
+                  <div className="font-bold text-indigo-900 uppercase text-[9px] tracking-wider flex items-center gap-1">
+                    📋 Data Tindak Lanjut Saat Ini:
+                  </div>
+                  {selectedItem.feedback && (
+                    <div>
+                      <span className="text-gray-500 font-semibold block text-[9px] uppercase">Feedback:</span>
+                      <p className="text-gray-700 italic">"{selectedItem.feedback}"</p>
+                    </div>
+                  )}
+                  {selectedItem.correctiveAction && (
+                    <div>
+                      <span className="text-gray-500 font-semibold block text-[9px] uppercase">Corrective Action:</span>
+                      <p className="text-gray-700 italic">"{selectedItem.correctiveAction}"</p>
+                    </div>
+                  )}
+                  {selectedItem.targetCompletionDate && (
+                    <div>
+                      <span className="text-gray-500 font-semibold block text-[9px] uppercase">Target Selesai (2 Hari):</span>
+                      <p className="text-emerald-700 font-semibold text-xs">
+                        {new Date(selectedItem.targetCompletionDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Compliance: Approve Publication */}
+              {currentUser.role === 'compliance' && (
+                <div className="p-4 bg-natural-light rounded-xl border border-natural-border space-y-3">
+                  <span className="text-xs font-bold text-natural-deep block uppercase tracking-wide">
+                    🛡️ Otorisasi Publikasi
+                  </span>
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    Tentukan apakah aspirasi ini layak dipublikasikan ke papan publik perusahaan atau harus tetap tertutup (privat).
+                  </p>
+                  
+                  <button
+                    id="btn-toggle-publication"
+                    type="button"
+                    onClick={() => handleReviewPublish(selectedItem.id, selectedItem.isPublic)}
+                    className={`w-full py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                      selectedItem.isPublic
+                        ? 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
+                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                    }`}
+                  >
+                    {selectedItem.isPublic ? (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5" />
+                        Batalkan Publikasi (Jadikan Privat)
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5" />
+                        Setujui Publikasikan ke Semua Orang
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Update Status form */}
+              <form onSubmit={handleUpdateStatus} className="space-y-4">
+                {/* PIC assignment - only editable by compliance, or auto assigned if PIC updates */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Tunjuk PIC Penanggung Jawab
+                  </label>
+                  {currentUser.role === 'compliance' ? (
+                    <div className="space-y-2.5">
+                      {/* Search box for PIC */}
+                      <div className="relative">
+                        <input
+                          id="search-pic-database"
+                          type="text"
+                          placeholder="Cari PIC dari Database (NIK, Nama, Bagian)..."
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white text-natural-deep focus:outline-none focus:ring-1 focus:ring-indigo-600 pl-8"
+                          value={picSearchQuery}
+                          onChange={(e) => setPicSearchQuery(e.target.value)}
+                        />
+                        <span className="absolute left-2.5 top-2.5 text-gray-400">🔍</span>
+                      </div>
+
+                      {/* Scrollable Matching List */}
+                      <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100 bg-gray-50/50">
+                        {pics.length === 0 ? (
+                          <div className="p-3 text-center text-gray-400 text-[10px]">
+                            Database PIC kosong. Silakan tambahkan PIC di tab Database PIC.
+                          </div>
+                        ) : (() => {
+                          const query = picSearchQuery.toLowerCase();
+                          const filtered = pics.filter(p => 
+                            p.nik?.toLowerCase().includes(query) ||
+                            p.name?.toLowerCase().includes(query) ||
+                            p.section?.toLowerCase().includes(query)
+                          );
+
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="p-3 text-center text-gray-400 text-[10px]">
+                                Tidak ada PIC yang cocok dengan pencarian "{picSearchQuery}".
+                              </div>
+                            );
+                          }
+
+                          return filtered.map(p => {
+                            const isSelected = picName === p.name && picDepartment === p.section;
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => {
+                                  setPicName(p.name);
+                                  setPicDepartment(p.section);
+                                }}
+                                className={`w-full text-left p-2 flex items-center justify-between text-xs transition-colors ${
+                                  isSelected ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-gray-100/70 text-natural-deep'
+                                }`}
+                              >
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-[9px] font-bold text-gray-500 bg-gray-200/60 px-1.5 py-0.5 rounded">
+                                      ID: {p.nik}
+                                    </span>
+                                    <span className="font-bold text-xs">{p.name}</span>
+                                  </div>
+                                  <div className="text-[10px] text-gray-500">
+                                    Bagian: <span className="font-medium text-gray-700">{p.section}</span>
+                                  </div>
+                                </div>
+                                {isSelected && (
+                                  <span className="text-indigo-600 font-bold text-xs">✓ Terpilih</span>
+                                )}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+
+                      {/* Manual Override view/edit */}
+                      <div className="bg-indigo-50/30 p-2.5 border border-indigo-100/50 rounded-lg">
+                        <div className="text-[10px] text-indigo-800 font-bold mb-1.5 flex items-center justify-between">
+                          <span>PIC Terpilih:</span>
+                          {picName && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPicName('');
+                                setPicDepartment('');
+                              }}
+                              className="text-red-500 hover:text-red-700 font-normal text-[9px]"
+                            >
+                              Hapus Pilihan
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-[9px] text-gray-400 block mb-0.5">Nama PIC</span>
+                            <input
+                              id="input-manual-pic-name"
+                              type="text"
+                              required
+                              placeholder="Belum ada PIC terpilih"
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs bg-white text-natural-deep font-bold"
+                              value={picName}
+                              onChange={(e) => setPicName(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-gray-400 block mb-0.5">Bagian / Departemen</span>
+                            <input
+                              id="input-manual-pic-dept"
+                              type="text"
+                              required
+                              placeholder="Departemen PIC"
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs bg-white text-natural-deep"
+                              value={picDepartment}
+                              onChange={(e) => setPicDepartment(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2 bg-gray-50 border border-gray-100 rounded text-xs text-gray-700">
+                      <strong>{picName || 'Belum ditugaskan'}</strong> {picDepartment && `(${picDepartment})`}
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress Status dropdown */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Tingkat Progres Laporan
+                  </label>
+                  <select
+                    id="select-progress-status"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white text-natural-deep focus:outline-none focus:ring-1 focus:ring-natural-sage"
+                    value={updateStatus}
+                    onChange={(e) => setUpdateStatus(e.target.value as ProgressStatus)}
+                  >
+                    <option value="reviewed">Reviewed (Compliance)</option>
+                    <option value="in_progress">In Progress (Ditindaklanjuti PIC)</option>
+                    <option value="management">Top Management (Ditinjau Direksi)</option>
+                    <option value="resolved">Resolved (Selesai)</option>
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                    Sesuai instruksi, Anda dapat meneruskan progress dari PIC hingga ke level top management untuk transparansi user.
+                  </p>
+                </div>
+
+                {/* Status Update Description */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Catatan Progres (Dilihat Karyawan)
+                  </label>
+                  <textarea
+                    id="textarea-status-desc"
+                    required
+                    rows={3}
+                    placeholder="Contoh: Kami sedang menjadwalkan perbaikan AC dengan teknisi eksternal pada hari Sabtu ini..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-natural-sage resize-none text-natural-deep placeholder-gray-400"
+                    value={updateDescription}
+                    onChange={(e) => setUpdateDescription(e.target.value)}
+                  />
+                </div>
+
+                {/* Feedback Wadah */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Feedback Tindak Lanjut (Wadah Feedback)
+                  </label>
+                  <textarea
+                    id="input-status-feedback"
+                    rows={2}
+                    placeholder="Masukkan feedback penyelesaian/penanganan untuk pelapor..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-natural-sage resize-none text-natural-deep placeholder-gray-400"
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                  />
+                </div>
+
+                {/* Corrective Action */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Corrective Action (Tindakan Perbaikan)
+                  </label>
+                  <textarea
+                    id="input-status-corrective"
+                    rows={2}
+                    placeholder="Tuliskan tindakan korektif / perbaikan konkret yang diambil..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-natural-sage resize-none text-natural-deep placeholder-gray-400"
+                    value={correctiveAction}
+                    onChange={(e) => setCorrectiveAction(e.target.value)}
+                  />
+                </div>
+
+                {/* Target Completion Date */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-natural-muted mb-1.5">
+                    Target Penyelesaian Laporan (Batas 2 Hari)
+                  </label>
+                  <input
+                    id="input-status-target-date"
+                    type="date"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white text-natural-deep focus:outline-none focus:ring-1 focus:ring-natural-sage"
+                    value={targetCompletionDate}
+                    onChange={(e) => setTargetCompletionDate(e.target.value)}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+                    Default target otomatis diset 2 hari dari sekarang sesuai kebijakan waktu tanggap.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    id="btn-cancel-action"
+                    type="button"
+                    onClick={() => setSelectedItem(null)}
+                    className="flex-1 py-2 px-3 border border-gray-200 hover:bg-gray-50 text-gray-500 font-bold rounded-lg text-xs text-center"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    id="btn-submit-action"
+                    type="submit"
+                    className="flex-1 py-2 px-3 bg-natural-sage hover:bg-natural-deep text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1"
+                  >
+                    <Send className="w-3 h-3" />
+                    Simpan Progres
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : (
+            <div className="bg-natural-light/50 border border-natural-beige border-dashed rounded-2xl p-6 text-center text-xs text-natural-muted sticky top-6">
+              💡 Pilih salah satu laporan atau ide di sebelah kiri untuk meninjau detail, menunjuk PIC, serta memperbarui riwayat progres penanganan.
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {activeSubTab === 'pics' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Google Sheets Cloud Status Banner */}
+          {firebaseStatus && (
+            <div className={`p-4 rounded-2xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+              firebaseStatus.diagnostics?.canWrite && firebaseStatus.diagnostics?.canRead
+                ? 'bg-emerald-50/80 border-emerald-200/60 text-emerald-900'
+                : 'bg-amber-50/80 border-amber-200/60 text-amber-900'
+            }`}>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 font-bold">
+                  <span className={`w-2.5 h-2.5 rounded-full ${
+                    firebaseStatus.diagnostics?.canWrite && firebaseStatus.diagnostics?.canRead ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'
+                  }`} />
+                  {firebaseStatus.diagnostics?.canWrite && firebaseStatus.diagnostics?.canRead
+                    ? 'Google Sheets Cloud Terkoneksi & Aktif'
+                    : 'Data Berjalan Lokal (Belum Terkoneksi ke Google Sheets Cloud)'}
+                </div>
+                <p className="text-[11px] text-opacity-80">
+                  {firebaseStatus.diagnostics?.canWrite && firebaseStatus.diagnostics?.canRead
+                    ? `Sistem terhubung murni ke Google Sheets Cloud sebagai database utama Anda.`
+                    : `Sistem saat ini menggunakan database lokal offline (db.json). Konfigurasikan Web App URL di Pengaturan untuk menghubungkan Google Sheets.`}
+                </p>
+                {firebaseStatus.diagnostics?.readError && (
+                  <p className="font-mono text-[10px] text-red-600 mt-1">
+                    Keterangan: {firebaseStatus.diagnostics.readError}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={fetchFirebaseStatus}
+                  className="px-2.5 py-1 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg text-[11px] font-semibold text-gray-700 transition"
+                >
+                  Cek Status
+                </button>
+                <button
+                  type="button"
+                  disabled={syncingFirebase}
+                  onClick={handleForceSyncFirebase}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-[11px] font-bold shadow-sm transition"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncingFirebase ? 'animate-spin' : ''}`} />
+                  {syncingFirebase ? 'Sinkronisasi...' : 'Sinkronkan Data ke Google Sheets'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Header Action Section */}
+          <div className="bg-white border border-natural-beige rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-serif font-bold text-lg text-natural-deep flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                Database PIC Terdaftar
+              </h3>
+              <p className="text-xs text-natural-muted mt-1">
+                Kelola data NIK, Nama, Bagian (Section), dan email PIC / Manager untuk alur disposisi.
+              </p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingPic(null);
+                  setPicForm({
+                    id: '',
+                    nik: '',
+                    name: '',
+                    section: '',
+                    user: '',
+                    domain: '',
+                    emailPic: '',
+                    emailManagerSpv: ''
+                  });
+                  setShowPicModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition"
+              >
+                + Tambah PIC Baru
+              </button>
+            </div>
+          </div>
+
+          {/* PIC Data Table / Grid */}
+          {picLoading && pics.length === 0 ? (
+            <div className="bg-white border border-natural-beige rounded-2xl p-12 text-center">
+              <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
+              <p className="text-xs text-natural-muted mt-3">Mengunduh data PIC...</p>
+            </div>
+          ) : pics.length === 0 ? (
+            <div className="bg-white border border-natural-beige rounded-2xl p-12 text-center">
+              <Users className="w-12 h-12 text-natural-muted/50 mx-auto" />
+              <h4 className="font-serif font-bold text-natural-deep mt-4">Belum Ada Data PIC</h4>
+              <p className="text-xs text-natural-muted mt-1 max-w-sm mx-auto">
+                Database PIC masih kosong. Silakan gunakan tombol "+ Tambah PIC Baru" di atas untuk menambahkan data pertama Anda.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white border border-natural-beige rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-natural-light/60 border-b border-natural-beige text-natural-deep font-bold">
+                      <th className="p-4 font-bold">NIK</th>
+                      <th className="p-4 font-bold">Nama Lengkap</th>
+                      <th className="p-4 font-bold">Section</th>
+                      <th className="p-4 font-bold">User / Domain</th>
+                      <th className="p-4 font-bold">Email PIC</th>
+                      <th className="p-4 font-bold">Email Mgr / SPV</th>
+                      <th className="p-4 font-bold text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-natural-beige">
+                    {pics.map((p) => (
+                      <tr key={p.id} className="hover:bg-natural-light/30 transition text-natural-deep">
+                        <td className="p-4 font-mono font-medium">{p.nik}</td>
+                        <td className="p-4 font-bold">{p.name}</td>
+                        <td className="p-4">{p.section}</td>
+                        <td className="p-4">
+                          {p.user ? (
+                            <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-700">
+                              {p.user}{p.domain}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-[10px]">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 font-mono text-[11px]">{p.emailPic || <span className="text-gray-400 italic">-</span>}</td>
+                        <td className="p-4 font-mono text-[11px]">{p.emailManagerSpv || <span className="text-gray-400 italic">-</span>}</td>
+                        <td className="p-4 text-center">
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPic(p);
+                                setPicForm({ ...p });
+                                setShowPicModal(true);
+                              }}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition"
+                              title="Edit PIC"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePic(p.id, p.name)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
+                              title="Hapus PIC"
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Modal / Pop-up Dialog untuk Add & Edit PIC */}
+          {showPicModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+              <div className="bg-white border border-natural-beige rounded-2xl w-full max-w-lg p-6 shadow-xl animate-fade-in relative my-8 text-left">
+                <button
+                  type="button"
+                  onClick={() => setShowPicModal(false)}
+                  className="absolute top-4 right-4 text-natural-muted hover:text-natural-deep text-lg font-bold"
+                >
+                  ✕
+                </button>
+                
+                <h3 className="font-serif font-bold text-base text-natural-deep border-b border-natural-beige pb-3">
+                  {editingPic ? 'Edit Data Anggota PIC' : 'Tambah Anggota PIC Baru'}
+                </h3>
+                
+                <form onSubmit={handleSavePic} className="space-y-4 mt-4 text-left">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">NIK (Nomor Induk Karyawan) *</label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                        placeholder="Contoh: MGM 002"
+                        value={picForm.nik}
+                        onChange={(e) => setPicForm({ ...picForm, nik: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">Nama Lengkap *</label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                        placeholder="Contoh: Yessy Murrina"
+                        value={picForm.name}
+                        onChange={(e) => setPicForm({ ...picForm, name: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1 col-span-1">
+                      <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">Section (Bagian)</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                        placeholder="Contoh: HRD"
+                        value={picForm.section}
+                        onChange={(e) => setPicForm({ ...picForm, section: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-1">
+                      <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">User</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                        placeholder="Contoh: yessy"
+                        value={picForm.user}
+                        onChange={(e) => setPicForm({ ...picForm, user: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1 col-span-1">
+                      <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">Domain</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                        placeholder="Contoh: @mgmglove.com"
+                        value={picForm.domain}
+                        onChange={(e) => setPicForm({ ...picForm, domain: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">Email PIC</label>
+                    <input
+                      type="email"
+                      className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                      placeholder="Contoh: yessy@mgmglove.com"
+                      value={picForm.emailPic}
+                      onChange={(e) => setPicForm({ ...picForm, emailPic: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">Email Manager/SPV</label>
+                    <input
+                      type="email"
+                      className="w-full px-3 py-1.5 border border-natural-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                      placeholder="Contoh: yessy@mgmglove.com"
+                      value={picForm.emailManagerSpv}
+                      onChange={(e) => setPicForm({ ...picForm, emailManagerSpv: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t border-natural-beige">
+                    <button
+                      type="button"
+                      onClick={() => setShowPicModal(false)}
+                      className="flex-1 py-2 px-3 border border-gray-200 hover:bg-gray-50 text-gray-500 font-bold rounded-lg text-xs text-center"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs text-center transition"
+                    >
+                      {editingPic ? 'Perbarui PIC' : 'Simpan PIC Baru'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeSubTab === 'settings' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Konfigurasi Form */}
+          <div className="bg-white border border-natural-beige rounded-2xl p-6 shadow-sm">
+            <h3 className="font-serif font-bold text-lg text-natural-deep flex items-center gap-2">
+              <Database className="w-5 h-5 text-indigo-600" />
+              Konfigurasi Server Google Sheets
+            </h3>
+            <p className="text-xs text-natural-muted mt-1">
+              Hubungkan aplikasi Aspirasi Anda dengan Google Sheets untuk menyimpan semua data pengguna, pengaduan (aspirasi), dan database PIC secara cloud dan terintegrasi penuh.
+            </p>
+
+            <form onSubmit={handleSaveConfig} className="mt-6 space-y-4 max-w-2xl">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">
+                  Google Apps Script Web App URL *
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  className="w-full px-3.5 py-2 border border-natural-border rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                  value={googleSheetWebappUrl}
+                  onChange={(e) => setGoogleSheetWebappUrlState(e.target.value)}
+                />
+                <p className="text-[10px] text-natural-muted">
+                  Masukkan URL Web App yang Anda dapatkan setelah melakukan deployment di Apps Script.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={savingConfig}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl shadow-sm transition"
+                >
+                  {savingConfig ? 'Menyimpan...' : 'Simpan Konfigurasi'}
+                </button>
+
+                {googleSheetWebappUrl && (
+                  <button
+                    type="button"
+                    disabled={syncingToSheet}
+                    onClick={handleSyncToSheet}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-xs font-bold rounded-xl shadow-sm transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingToSheet ? 'animate-spin' : ''}`} />
+                    {syncingToSheet ? 'Sinkronisasi...' : 'Inisialisasi & Sinkronkan Data Saat Ini'}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* Panduan Integrasi */}
+          <div className="bg-white border border-natural-beige rounded-2xl p-6 shadow-sm space-y-4">
+            <h4 className="font-bold text-sm text-natural-deep">
+              🛠️ Panduan Langkah Demi Langkah Setup Server di Google Sheets
+            </h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-natural-deep leading-relaxed">
+              <div className="space-y-3">
+                <p className="font-semibold text-indigo-600 text-[13px]">Langkah 1 s/d 4 (Pembuatan & Penempelan Kode):</p>
+                <ol className="list-decimal pl-4 space-y-2">
+                  <li>Buat sebuah Google Spreadsheet baru di Google Drive Anda.</li>
+                  <li>Di menu atas Spreadsheet, klik <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
+                  <li>Hapus semua kode default (fungsi <code>myFunction</code>) yang ada di editor.</li>
+                  <li>Salin seluruh kode script dari panel di sebelah kanan ini, lalu tempelkan ke editor Apps Script. Klik tombol disket (Save) di bagian atas editor.</li>
+                </ol>
+
+                <p className="font-semibold text-indigo-600 text-[13px] pt-2">Langkah 5 s/d 7 (Deployment Web App):</p>
+                <ol className="list-decimal pl-4 space-y-2" start={5}>
+                  <li>Klik tombol biru <strong>Deploy</strong> di bagian kanan atas editor, lalu pilih <strong>New deployment</strong>.</li>
+                  <li>Klik ikon roda gigi di sebelah "Select type", lalu pilih <strong>Web app</strong>.</li>
+                  <li>Isi deskripsi bebas (contoh: <code>Aspirasi Server</code>).</li>
+                  <li>Ubah pengaturan <strong>Execute as</strong> menjadi: <strong>Me (email-anda@gmail.com)</strong>.</li>
+                  <li>Ubah pengaturan <strong>Who has access</strong> menjadi: <strong>Anyone</strong> (Siapa saja, agar aplikasi ini dapat berkomunikasi dengan sheet Anda).</li>
+                  <li>Klik tombol biru <strong>Deploy</strong>.</li>
+                  <li>Klik <strong>Authorize access</strong>, pilih akun Google Anda, klik "Advanced", lalu pilih "Go to Untitled project (unsafe)" untuk memberikan izin akses.</li>
+                  <li>Salin URL di bawah kolom <strong>Web app</strong> (berakhir dengan <code>/exec</code>), lalu tempelkan ke kolom input di atas!</li>
+                </ol>
+              </div>
+
+              {/* Apps Script Code Preview Column */}
+              <div className="space-y-3 flex flex-col">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-bold text-natural-muted uppercase">Google Apps Script Code</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(googleAppsScriptCode);
+                      setCopiedScript(true);
+                      setTimeout(() => setCopiedScript(false), 2000);
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg transition"
+                  >
+                    {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedScript ? 'Tersalin!' : 'Salin Kode Script'}
+                  </button>
+                </div>
+                
+                <textarea
+                  readOnly
+                  value={googleAppsScriptCode}
+                  className="w-full flex-1 min-h-[320px] p-3 font-mono text-[10px] text-gray-700 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none resize-none leading-normal"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

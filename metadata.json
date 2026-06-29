@@ -1,0 +1,6 @@
+{
+  "name": "Mercindo Voice Portal (MVP)",
+  "description": "Platform aspirasi karyawan, grievance, dan ide yang dilengkapi dengan AI klasifikasi otomatis serta workflow compliance, PIC, dan pelacakan progres.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
