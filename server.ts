@@ -1007,7 +1007,32 @@ async function startServer() {
       let uploadWarning = '';
       if (fileBase64 && fileName && fileType) {
         try {
-          const uploadedUrl = await uploadToGoogleDrive(fileBase64, fileName, fileType);
+          const now = new Date();
+          // Adjust to GMT+7 (WIB) for consistent datetime string
+          const offset = 7 * 60; // WIB is UTC+7
+          const localTime = new Date(now.getTime() + (now.getTimezoneOffset() + offset) * 60000);
+          
+          const yyyy = localTime.getFullYear();
+          const mm = String(localTime.getMonth() + 1).padStart(2, '0');
+          const dd = String(localTime.getDate()).padStart(2, '0');
+          const hh = String(localTime.getHours()).padStart(2, '0');
+          const min = String(localTime.getMinutes()).padStart(2, '0');
+          const ss = String(localTime.getSeconds()).padStart(2, '0');
+          
+          // Get extension from fileType or original fileName
+          let ext = '.png';
+          if (fileType) {
+            if (fileType.includes('jpeg') || fileType.includes('jpg')) {
+              ext = '.jpg';
+            } else if (fileType.includes('gif')) {
+              ext = '.gif';
+            }
+          } else if (fileName && fileName.includes('.')) {
+            ext = fileName.substring(fileName.lastIndexOf('.'));
+          }
+          
+          const driveFileName = `ASPIRASI_${yyyy}${mm}${dd}_${hh}${min}${ss}${ext}`;
+          const uploadedUrl = await uploadToGoogleDrive(fileBase64, driveFileName, fileType);
           if (uploadedUrl) {
             photoUrl = uploadedUrl;
           }

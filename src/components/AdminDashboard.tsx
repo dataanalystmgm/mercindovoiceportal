@@ -22,263 +22,6 @@ const getTopicBadgeStyle = (topic: string) => {
   return 'bg-gray-50 text-gray-600 border border-gray-200';
 };
 
-const googleAppsScriptCode = `// ========================================================
-// KONFIGURASI GOOGLE APPS SCRIPT (ASPIRASI SYSTEM)
-// ========================================================
-// ID Folder Google Drive tempat menyimpan lampiran gambar (opsional). 
-var FOLDER_ID = '16cJX95wRYac4Yg1yL5kyFjDO2GikD6CY';
-
-// ========================================================
-// PENTING: Untuk mengaktifkan fitur upload file gambar/foto,
-// Anda WAJIB memberikan izin akses Google Drive.
-// Caranya:
-// 1. Pilih fungsi "setupPermissions" di dropdown menu atas.
-// 2. Klik tombol "Jalankan" atau "Run".
-// 3. Ikuti prompt popup untuk memberikan izin akun Anda.
-// 4. Setelah sukses, lakukan "Deploy" -> "New Deployment" ulang.
-// ========================================================
-function setupPermissions() {
-  try {
-    DriveApp.getFiles().hasNext();
-  } catch(e) {}
-}
-
-function doGet(e) {
-  try {
-    initializeSheets();
-    var action = e.parameter.action;
-    var table = e.parameter.table;
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
-    if (action === 'read') {
-      var sheet = ss.getSheetByName(table);
-      if (!sheet) {
-        return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
-      }
-      var data = sheet.getDataRange().getValues();
-      if (data.length <= 1) {
-        return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
-      }
-      var headers = data[0];
-      var list = [];
-      for (var i = 1; i < data.length; i++) {
-        var row = data[i];
-        var obj = {};
-        for (var j = 0; j < headers.length; j++) {
-          var val = row[j];
-          if (typeof val === 'string' && (val.indexOf('[') === 0 || val.indexOf('{') === 0)) {
-            try {
-              val = JSON.parse(val);
-            } catch(err) {}
-          }
-          obj[headers[j]] = val;
-        }
-        list.push(obj);
-      }
-      return ContentService.createTextOutput(JSON.stringify(list)).setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({ error: 'Invalid action' })).setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function doPost(e) {
-  try {
-    initializeSheets();
-    var params = JSON.parse(e.postData.contents);
-    var action = params.action;
-    var table = params.table;
-    var data = params.data;
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
-    if (action === 'uploadFile') {
-      try {
-        var result = uploadFileToDrive(data.base64, data.type, data.name);
-        return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
-      } catch(err) {
-        return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
-      }
-    }
-    
-    var sheet = ss.getSheetByName(table);
-    if (!sheet) {
-      sheet = ss.insertSheet(table);
-    }
-    
-    if (action === 'write') {
-      var rows = sheet.getDataRange().getValues();
-      var headers = rows[0] || [];
-      
-      if (headers.length === 0) {
-        headers = Object.keys(data);
-        sheet.appendRow(headers);
-        rows = [headers];
-      } else {
-        var updatedHeaders = [...headers];
-        var keys = Object.keys(data);
-        var headersChanged = false;
-        keys.forEach(function(key) {
-          if (updatedHeaders.indexOf(key) === -1) {
-            updatedHeaders.push(key);
-            headersChanged = true;
-          }
-        });
-        if (headersChanged) {
-          headers = updatedHeaders;
-          sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-        }
-      }
-      
-      var idIndex = headers.indexOf('id');
-      if (idIndex === -1) {
-        headers.push('id');
-        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-        idIndex = headers.length - 1;
-      }
-      
-      var targetRowIdx = -1;
-      for (var i = 1; i < rows.length; i++) {
-        if (rows[i][idIndex] === data.id) {
-          targetRowIdx = i + 1;
-          break;
-        }
-      }
-      
-      var rowValues = headers.map(function(header) {
-        var val = data[header];
-        if (val === undefined || val === null) return '';
-        if (typeof val === 'object') return JSON.stringify(val);
-        return val;
-      });
-      
-      if (targetRowIdx !== -1) {
-        sheet.getRange(targetRowIdx, 1, 1, rowValues.length).setValues([rowValues]);
-      } else {
-        sheet.appendRow(rowValues);
-      }
-      
-      return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Row saved' })).setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    if (action === 'delete') {
-      var rows = sheet.getDataRange().getValues();
-      var headers = rows[0] || [];
-      var idIndex = headers.indexOf('id');
-      if (idIndex !== -1) {
-        for (var i = 1; i < rows.length; i++) {
-          if (rows[i][idIndex] === params.id) {
-            sheet.deleteRow(i + 1);
-            return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Row deleted' })).setMimeType(ContentService.MimeType.JSON);
-          }
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'ID not found' })).setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({ error: 'Unknown action' })).setMimeType(ContentService.MimeType.JSON);
-  } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function initializeSheets() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  var sheetsConfig = {
-    'users': ['id', 'email', 'password', 'name', 'role', 'department', 'createdAt', 'status', 'nik'],
-    'aspirasi': ['id', 'trackingCode', 'title', 'content', 'originalClassification', 'photoUrl', 'aiClassification', 'aiReason', 'topic', 'isPublic', 'isReviewed', 'status', 'authorId', 'authorName', 'anonymous', 'feedback', 'correctiveAction', 'targetCompletionDate', 'createdAt', 'updatedAt', 'progressHistory'],
-    'pics': ['id', 'nik', 'name', 'section', 'email', 'phone', 'category', 'status', 'createdAt']
-  };
-  
-  for (var name in sheetsConfig) {
-    var sheet = ss.getSheetByName(name);
-    if (!sheet) {
-      sheet = ss.insertSheet(name);
-    }
-    var values = sheet.getDataRange().getValues();
-    if (values.length === 0 || (values.length === 1 && values[0][0] === '')) {
-      sheet.appendRow(sheetsConfig[name]);
-    } else {
-      var currentHeaders = values[0];
-      var headersToAdd = [];
-      sheetsConfig[name].forEach(function(h) {
-        if (currentHeaders.indexOf(h) === -1) {
-          headersToAdd.push(h);
-        }
-      });
-      if (headersToAdd.length > 0) {
-        var updatedHeaders = currentHeaders.concat(headersToAdd);
-        sheet.getRange(1, 1, 1, updatedHeaders.length).setValues([updatedHeaders]);
-      }
-    }
-  }
-}
-
-function uploadFileToDrive(base64Data, mimeType, originalName) {
-  if (!base64Data) {
-    throw new Error("Data base64 kosong.");
-  }
-  try {
-    // 1. Tentukan ekstensi berdasarkan mimeType
-    var extension = '.png'; // Default
-    if (mimeType) {
-      if (mimeType.indexOf('image/jpeg') !== -1 || mimeType.indexOf('image/jpg') !== -1) {
-        extension = '.jpg';
-      } else if (mimeType.indexOf('image/png') !== -1) {
-        extension = '.png';
-      } else if (mimeType.indexOf('image/gif') !== -1) {
-        extension = '.gif';
-      }
-    }
-
-    // Format datetime string: YYYYMMDD_HHMMSS
-    var now = new Date();
-    var formattedDateTime = now.getFullYear() + 
-                         ("0" + (now.getMonth() + 1)).slice(-2) + 
-                         ("0" + now.getDate()).slice(-2) + "_" + 
-                         ("0" + now.getHours()).slice(-2) + 
-                         ("0" + now.getMinutes()).slice(-2) + 
-                         ("0" + now.getSeconds()).slice(-2);
-    
-    // Nama file sesuai request: ASPIRASI_datetime
-    var fileName = "ASPIRASI_" + formattedDateTime + extension;
-    
-    // 3. Proses decoding base64 & pembuatan blob
-    var decoded = Utilities.base64Decode(base64Data);
-    var blob = Utilities.newBlob(decoded, mimeType || 'image/png', fileName);
-    
-    // 4. Folder tujuan: Gunakan ID Folder dari user
-    var FOLDER_ID = '16cJX95wRYac4Yg1yL5kyFjDO2GikD6CY';
-    var folder;
-    try {
-      folder = DriveApp.getFolderById(FOLDER_ID);
-    } catch (err) {
-      // Fallback jika tidak ditemukan/akses ditolak, buat di root atau gunakan folder name
-      var folderName = "Aspirasi_Lampiran";
-      var folders = DriveApp.getFoldersByName(folderName);
-      if (folders.hasNext()) {
-        folder = folders.next();
-      } else {
-        folder = DriveApp.createFolder(folderName);
-      }
-    }
-    
-    var uploadedFile = folder.createFile(blob);
-    
-    // 5. Set izin akses agar file bisa dilihat oleh Admin/PIC di Dashboard (VIEW)
-    uploadedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    
-    return {
-      success: true,
-      url: uploadedFile.getUrl()
-    };
-  } catch (error) {
-    throw new Error("Gagal mengunggah file ke Google Drive: " + error.toString());
-  }
-}
-`;
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -372,14 +115,13 @@ export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
     }
   };
 
-  // Sub-tab selection: submissions, pics, or settings
-  const [activeSubTab, setActiveSubTab] = useState<'submissions' | 'pics' | 'settings'>('submissions');
+  // Sub-tab selection: submissions or pics
+  const [activeSubTab, setActiveSubTab] = useState<'submissions' | 'pics'>('submissions');
 
   // Google Sheet Web App Server States
   const [googleSheetWebappUrl, setGoogleSheetWebappUrlState] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
   const [syncingToSheet, setSyncingToSheet] = useState(false);
-  const [copiedScript, setCopiedScript] = useState(false);
 
   const fetchConfig = async () => {
     try {
@@ -660,15 +402,17 @@ export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
           </p>
         </div>
 
-        <button
-          id="btn-refresh-dashboard"
-          onClick={fetchSubmissions}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-4 py-2 bg-natural-light text-natural-deep hover:bg-natural-border text-xs font-semibold rounded-lg transition"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Segarkan Data
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            id="btn-refresh-dashboard"
+            onClick={fetchSubmissions}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-4 py-2 bg-natural-light text-natural-deep hover:bg-natural-border text-xs font-semibold rounded-lg transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Segarkan Data
+          </button>
+        </div>
       </div>
 
       {success && (
@@ -713,22 +457,6 @@ export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
         >
           <Users className="w-3.5 h-3.5" />
           Database PIC ({pics.length})
-        </button>
-        <button
-          id="tab-view-settings"
-          type="button"
-          onClick={() => {
-            setActiveSubTab('settings');
-            fetchConfig();
-          }}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
-            activeSubTab === 'settings'
-              ? 'border-indigo-600 text-indigo-600 font-bold'
-              : 'border-transparent text-natural-muted hover:text-natural-deep font-medium'
-          }`}
-        >
-          <Database className="w-3.5 h-3.5" />
-          Server & Google Sheets
         </button>
       </div>
 
@@ -1221,7 +949,7 @@ export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 <p className="text-[11px] text-opacity-80">
                   {firebaseStatus.diagnostics?.canWrite && firebaseStatus.diagnostics?.canRead
                     ? `Sistem terhubung murni ke Google Sheets Cloud sebagai database utama Anda.`
-                    : `Sistem saat ini menggunakan database lokal offline (db.json). Konfigurasikan Web App URL di Pengaturan untuk menghubungkan Google Sheets.`}
+                    : `Sistem saat ini menggunakan database lokal offline (db.json). Harap periksa hardcodedUrl di server.ts untuk menghubungkan Google Sheets.`}
                 </p>
                 {firebaseStatus.diagnostics?.readError && (
                   <p className="font-mono text-[10px] text-red-600 mt-1">
@@ -1483,117 +1211,6 @@ export default function AdminDashboard({ currentUser }: AdminDashboardProps) {
         </div>
       )}
 
-      {activeSubTab === 'settings' && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Konfigurasi Form */}
-          <div className="bg-white border border-natural-beige rounded-2xl p-6 shadow-sm">
-            <h3 className="font-serif font-bold text-lg text-natural-deep flex items-center gap-2">
-              <Database className="w-5 h-5 text-indigo-600" />
-              Konfigurasi Server Google Sheets
-            </h3>
-            <p className="text-xs text-natural-muted mt-1">
-              Hubungkan aplikasi Aspirasi Anda dengan Google Sheets untuk menyimpan semua data pengguna, pengaduan (aspirasi), dan database PIC secara cloud dan terintegrasi penuh.
-            </p>
-
-            <form onSubmit={handleSaveConfig} className="mt-6 space-y-4 max-w-2xl">
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-natural-deep uppercase tracking-wider block">
-                  Google Apps Script Web App URL *
-                </label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="w-full px-3.5 py-2 border border-natural-border rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                  value={googleSheetWebappUrl}
-                  onChange={(e) => setGoogleSheetWebappUrlState(e.target.value)}
-                />
-                <p className="text-[10px] text-natural-muted">
-                  Masukkan URL Web App yang Anda dapatkan setelah melakukan deployment di Apps Script.
-                </p>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={savingConfig}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl shadow-sm transition"
-                >
-                  {savingConfig ? 'Menyimpan...' : 'Simpan Konfigurasi'}
-                </button>
-
-                {googleSheetWebappUrl && (
-                  <button
-                    type="button"
-                    disabled={syncingToSheet}
-                    onClick={handleSyncToSheet}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-xs font-bold rounded-xl shadow-sm transition"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncingToSheet ? 'animate-spin' : ''}`} />
-                    {syncingToSheet ? 'Sinkronisasi...' : 'Inisialisasi & Sinkronkan Data Saat Ini'}
-                  </button>
-                )}
-              </div>
-            </form>
-          </div>
-
-          {/* Panduan Integrasi */}
-          <div className="bg-white border border-natural-beige rounded-2xl p-6 shadow-sm space-y-4">
-            <h4 className="font-bold text-sm text-natural-deep">
-              🛠️ Panduan Langkah Demi Langkah Setup Server di Google Sheets
-            </h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-natural-deep leading-relaxed">
-              <div className="space-y-3">
-                <p className="font-semibold text-indigo-600 text-[13px]">Langkah 1 s/d 4 (Pembuatan & Penempelan Kode):</p>
-                <ol className="list-decimal pl-4 space-y-2">
-                  <li>Buat sebuah Google Spreadsheet baru di Google Drive Anda.</li>
-                  <li>Di menu atas Spreadsheet, klik <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
-                  <li>Hapus semua kode default (fungsi <code>myFunction</code>) yang ada di editor.</li>
-                  <li>Salin seluruh kode script dari panel di sebelah kanan ini, lalu tempelkan ke editor Apps Script. Klik tombol disket (Save) di bagian atas editor.</li>
-                </ol>
-
-                <p className="font-semibold text-indigo-600 text-[13px] pt-2">Langkah 5 s/d 7 (Deployment Web App):</p>
-                <ol className="list-decimal pl-4 space-y-2" start={5}>
-                  <li>Klik tombol biru <strong>Deploy</strong> di bagian kanan atas editor, lalu pilih <strong>New deployment</strong>.</li>
-                  <li>Klik ikon roda gigi di sebelah "Select type", lalu pilih <strong>Web app</strong>.</li>
-                  <li>Isi deskripsi bebas (contoh: <code>Aspirasi Server</code>).</li>
-                  <li>Ubah pengaturan <strong>Execute as</strong> menjadi: <strong>Me (email-anda@gmail.com)</strong>.</li>
-                  <li>Ubah pengaturan <strong>Who has access</strong> menjadi: <strong>Anyone</strong> (Siapa saja, agar aplikasi ini dapat berkomunikasi dengan sheet Anda).</li>
-                  <li>Klik tombol biru <strong>Deploy</strong>.</li>
-                  <li>Klik <strong>Authorize access</strong>, pilih akun Google Anda, klik "Advanced", lalu pilih "Go to Untitled project (unsafe)" untuk memberikan izin akses.</li>
-                  <li>Salin URL di bawah kolom <strong>Web app</strong> (berakhir dengan <code>/exec</code>), lalu tempelkan ke kolom input di atas!</li>
-                </ol>
-              </div>
-
-              {/* Apps Script Code Preview Column */}
-              <div className="space-y-3 flex flex-col">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[11px] font-bold text-natural-muted uppercase">Google Apps Script Code</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(googleAppsScriptCode);
-                      setCopiedScript(true);
-                      setTimeout(() => setCopiedScript(false), 2000);
-                    }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg transition"
-                  >
-                    {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedScript ? 'Tersalin!' : 'Salin Kode Script'}
-                  </button>
-                </div>
-                
-                <textarea
-                  readOnly
-                  value={googleAppsScriptCode}
-                  className="w-full flex-1 min-h-[320px] p-3 font-mono text-[10px] text-gray-700 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none resize-none leading-normal"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

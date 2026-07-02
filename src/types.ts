@@ -52,8 +52,8 @@ export interface Aspirasi {
   createdAt: string;
   updatedAt: string;
   progressHistory: ProgressLog[];
-  photoUrl?: string;
   feedback?: string;
   correctiveAction?: string;
   targetCompletionDate?: string;
+  photoUrl?: string;
 }
