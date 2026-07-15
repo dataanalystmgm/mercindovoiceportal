@@ -30,6 +30,7 @@ export interface ProgressLog {
   description: string;
   updatedBy: string;
   createdAt: string;
+  feedbackPhotoUrl?: string;
 }
 
 export interface Aspirasi {
@@ -56,4 +57,5 @@ export interface Aspirasi {
   correctiveAction?: string;
   targetCompletionDate?: string;
   photoUrl?: string;
+  feedbackPhotoUrl?: string;
 }

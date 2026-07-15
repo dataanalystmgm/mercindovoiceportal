@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
+
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 
@@ -695,15 +695,13 @@ Berikan respon dalam format JSON dengan struktur:
   };
 }
 
-async function startServer() {
-  initLocalDatabase();
-  const app = express();
-  const PORT = 3000;
+initLocalDatabase();
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-  // --- API ROUTES ---
+// --- API ROUTES ---
 
   // Diagnostic Endpoint for Cloud Status (repurposed to Google Sheets)
   app.get('/api/firebase-status', async (req, res) => {
@@ -1195,7 +1193,19 @@ async function startServer() {
   app.put('/api/aspirasi/:id/status', async (req, res) => {
     try {
       const { id } = req.params;
-      const { status, picName, picDepartment, description, updatedBy, feedback, correctiveAction, targetCompletionDate } = req.body;
+      const { 
+        status, 
+        picName, 
+        picDepartment, 
+        description, 
+        updatedBy, 
+        feedback, 
+        correctiveAction, 
+        targetCompletionDate,
+        feedbackPhotoBase64,
+        feedbackPhotoName,
+        feedbackPhotoType
+      } = req.body;
 
       if (!status) {
         return res.status(400).json({ error: 'Status wajib ditentukan' });
@@ -1212,6 +1222,22 @@ async function startServer() {
       // Track original status to verify change
       const oldStatus = item.status;
       item.status = status;
+
+      // Handle optional feedback photo upload
+      let uploadedFeedbackPhotoUrl = '';
+      if (feedbackPhotoBase64 && feedbackPhotoName && feedbackPhotoType) {
+        console.log(`Uploading feedback photo to Google Drive: ${feedbackPhotoName}...`);
+        try {
+          const url = await uploadToGoogleDrive(feedbackPhotoBase64, feedbackPhotoName, feedbackPhotoType);
+          if (url) {
+            uploadedFeedbackPhotoUrl = url;
+            item.feedbackPhotoUrl = url;
+            console.log('Feedback photo uploaded successfully:', url);
+          }
+        } catch (uploadErr) {
+          console.error('Error uploading feedback photo:', uploadErr);
+        }
+      }
       if (picName) {
         item.picName = picName;
       }
@@ -1256,13 +1282,17 @@ async function startServer() {
         logDesc += `\nTarget Selesai: ${formattedDate}`;
       }
 
-      item.progressHistory.push({
+      const newLog: any = {
         id: `log-${Date.now()}`,
         status,
         description: logDesc,
         updatedBy: updatedBy || 'Sistem',
         createdAt: new Date().toISOString()
-      });
+      };
+      if (uploadedFeedbackPhotoUrl) {
+        newLog.feedbackPhotoUrl = uploadedFeedbackPhotoUrl;
+      }
+      item.progressHistory.push(newLog);
 
       await persistAspirasi(item);
 
@@ -1330,9 +1360,15 @@ async function startServer() {
     }
   });
 
+  
+async function startServer() {
+
   // --- VITE MIDDLEWARE / STATIC SERVING ---
 
   if (process.env.NODE_ENV !== 'production') {
+    // Bypass bundler static analysis for vite
+    const viteModule = 'vite';
+    const { createServer: createViteServer } = await import(viteModule);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Aspirasi } from '../types';
-import { Eye, MessageSquare, Lightbulb, Search, Calendar, ChevronRight, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Eye, MessageSquare, Lightbulb, Search, Calendar, ChevronRight, CheckCircle2, ShieldAlert, Camera } from 'lucide-react';
+import Swal from 'sweetalert2';
+import { getGoogleDriveDirectUrl } from '../utils';
 
 interface PublicBoardProps {
   onSelectTrack: (code: string) => void;
@@ -14,22 +16,42 @@ export default function PublicBoard({ onSelectTrack }: PublicBoardProps) {
   const [selectedTopic, setSelectedTopic] = useState<string>('all');
   const [search, setSearch] = useState('');
 
-  const fetchPublicData = async () => {
+  const fetchPublicData = async (showLoadingAlert = false) => {
     setLoading(true);
+    if (showLoadingAlert) {
+      Swal.fire({
+        title: 'Mengambil Data...',
+        text: 'Sedang memuat data papan aspirasi publik.',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+    }
     try {
       const response = await fetch('/api/aspirasi/public');
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Gagal memuat data');
       setPublicList(data);
+      if (showLoadingAlert) {
+        Swal.close();
+      }
     } catch (err: any) {
       setError(err.message || 'Gagal terhubung ke server');
+      if (showLoadingAlert) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Gagal Memuat',
+          text: err.message || 'Gagal terhubung ke server'
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPublicData();
+    fetchPublicData(true);
   }, []);
 
   const getTopicBadgeStyle = (topic: string) => {
@@ -261,14 +283,39 @@ export default function PublicBoard({ onSelectTrack }: PublicBoardProps) {
                 </p>
 
                 {item.photoUrl && (
-                  <div className="mb-3">
+                  <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-[10px] font-bold text-natural-muted uppercase tracking-wider block mb-1">Lampiran Foto Pengirim:</span>
                     <a 
                       href={item.photoUrl} 
                       target="_blank" 
                       rel="noreferrer" 
-                      className="inline-flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
+                      className="inline-block group overflow-hidden rounded-lg border border-natural-border bg-white p-1 hover:border-natural-sage transition-all"
                     >
-                      <span>📎 Lihat Lampiran Foto (Drive) ↗</span>
+                      <img 
+                        src={getGoogleDriveDirectUrl(item.photoUrl)} 
+                        alt="Lampiran" 
+                        className="max-h-24 rounded object-contain transition-transform group-hover:scale-[1.02]"
+                        referrerPolicy="no-referrer"
+                      />
+                    </a>
+                  </div>
+                )}
+
+                {item.feedbackPhotoUrl && (
+                  <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block mb-1">Foto Bukti Selesai / Tindak Lanjut:</span>
+                    <a 
+                      href={item.feedbackPhotoUrl} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="inline-block group overflow-hidden rounded-lg border border-indigo-100 bg-white p-1 hover:border-indigo-400 transition-all"
+                    >
+                      <img 
+                        src={getGoogleDriveDirectUrl(item.feedbackPhotoUrl)} 
+                        alt="Foto Tindak Lanjut" 
+                        className="max-h-24 rounded object-contain transition-transform group-hover:scale-[1.02]"
+                        referrerPolicy="no-referrer"
+                      />
                     </a>
                   </div>
                 )}

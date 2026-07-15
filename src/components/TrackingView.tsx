@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Aspirasi, ProgressStatus } from '../types';
-import { Search, MapPin, Calendar, User, CheckCircle2, AlertCircle, RefreshCw, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Search, MapPin, Calendar, User, CheckCircle2, AlertCircle, RefreshCw, Eye, EyeOff, ShieldCheck, Camera } from 'lucide-react';
+import Swal from 'sweetalert2';
+import { getGoogleDriveDirectUrl } from '../utils';
 
 interface TrackingViewProps {
   initialCode?: string;
@@ -51,6 +53,15 @@ export default function TrackingView({ initialCode = '' }: TrackingViewProps) {
     setError('');
     setData(null);
 
+    Swal.fire({
+      title: 'Melacak Kasus...',
+      text: 'Sedang mengambil detail data aspirasi dari database...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
     try {
       const response = await fetch(`/api/aspirasi/track/${code.trim()}`);
       const result = await response.json();
@@ -60,8 +71,15 @@ export default function TrackingView({ initialCode = '' }: TrackingViewProps) {
       }
 
       setData(result);
+      Swal.close();
     } catch (err: any) {
-      setError(err.message || 'Laporan tidak ditemukan. Periksa kembali kode Anda.');
+      const errMsg = err.message || 'Laporan tidak ditemukan. Periksa kembali kode Anda.';
+      setError(errMsg);
+      Swal.fire({
+        icon: 'error',
+        title: 'Pelacakan Gagal',
+        text: errMsg
+      });
     } finally {
       setLoading(false);
     }
@@ -70,18 +88,38 @@ export default function TrackingView({ initialCode = '' }: TrackingViewProps) {
   React.useEffect(() => {
     if (initialCode) {
       setCode(initialCode);
-      // Auto triggers search
       setLoading(true);
+      Swal.fire({
+        title: 'Memuat Kode Otomatis...',
+        text: 'Mengambil data pelacakan...',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
       fetch(`/api/aspirasi/track/${initialCode.trim()}`)
         .then(res => res.json())
         .then(resData => {
           if (resData.error) {
             setError(resData.error);
+            Swal.fire({
+              icon: 'error',
+              title: 'Gagal Memuat',
+              text: resData.error
+            });
           } else {
             setData(resData);
+            Swal.close();
           }
         })
-        .catch(() => setError('Gagal memuat kode pelacakan otomatis'))
+        .catch(() => {
+          setError('Gagal memuat kode pelacakan otomatis');
+          Swal.fire({
+            icon: 'error',
+            title: 'Gagal',
+            text: 'Gagal memuat kode pelacakan otomatis'
+          });
+        })
         .finally(() => setLoading(false));
     }
   }, [initialCode]);
@@ -185,7 +223,7 @@ export default function TrackingView({ initialCode = '' }: TrackingViewProps) {
                   className="inline-block group overflow-hidden rounded-xl border border-natural-border bg-white p-1 hover:border-natural-sage transition-all max-w-sm"
                 >
                   <img 
-                    src={data.photoUrl} 
+                    src={getGoogleDriveDirectUrl(data.photoUrl)} 
                     alt="Lampiran Aspirasi" 
                     className="max-h-48 rounded-lg object-contain transition-transform group-hover:scale-[1.02]"
                     referrerPolicy="no-referrer"
@@ -261,8 +299,28 @@ export default function TrackingView({ initialCode = '' }: TrackingViewProps) {
 
                     {/* Progress Detail Log */}
                     {historyLog && (
-                      <div className="mt-2.5 p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+                      <div className="mt-2.5 p-3.5 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
                         <p className="text-xs text-gray-600 italic">"{historyLog.description}"</p>
+                        
+                        {historyLog.feedbackPhotoUrl && (
+                          <div className="mt-2.5">
+                            <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider block mb-1">Lampiran Foto Progres:</span>
+                            <a 
+                              href={historyLog.feedbackPhotoUrl} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="inline-block group overflow-hidden rounded-lg border border-indigo-100 bg-white p-1 hover:border-indigo-400 transition-all max-w-xs"
+                            >
+                              <img 
+                                src={getGoogleDriveDirectUrl(historyLog.feedbackPhotoUrl)} 
+                                alt="Lampiran Progres" 
+                                className="max-h-32 rounded object-contain transition-transform group-hover:scale-[1.02]"
+                                referrerPolicy="no-referrer"
+                              />
+                            </a>
+                          </div>
+                        )}
+                        
                         <div className="flex items-center gap-1.5 mt-2 text-[10px] text-natural-muted">
                           <span className="font-semibold text-natural-deep">Petugas:</span>
                           <span>{historyLog.updatedBy}</span>

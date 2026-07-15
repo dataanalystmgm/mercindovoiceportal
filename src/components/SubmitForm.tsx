@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Aspirasi } from '../types';
 import { Lightbulb, MessageSquare, AlertCircle, Sparkles, Send, EyeOff, UserCheck, ShieldCheck, ArrowRight, Camera, Trash2, Paperclip } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 const getTopicBadgeStyle = (topic: string) => {
   const t = (topic || '').toLowerCase();
@@ -105,6 +106,15 @@ export default function SubmitForm({ currentUser, onShowAuth, onSubmissionSucces
     setError('');
     setSubmittedData(null);
 
+    Swal.fire({
+      title: 'Mengirim Aspirasi...',
+      text: 'Sedang menganalisis klasifikasi AI dan mengunggah lampiran gambar ke Google Drive...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
     const body = {
       title,
       content,
@@ -142,11 +152,24 @@ export default function SubmitForm({ currentUser, onShowAuth, onSubmissionSucces
       setFileName('');
       setFileType('');
       
+      Swal.fire({
+        icon: 'success',
+        title: 'Aspirasi Terkirim!',
+        text: `Sukses mendaftarkan aspirasi dengan Kode Lacak: ${data.data.trackingCode}`,
+        timer: 3000,
+        showConfirmButton: true
+      });
+
       // Notify parent
       const isIdea = data.data.aiClassification === 'ide';
       onSubmissionSuccess(data.data.trackingCode, isIdea);
     } catch (err: any) {
       setError(err.message || 'Gagal terhubung ke server');
+      Swal.fire({
+        icon: 'error',
+        title: 'Gagal Mengirim',
+        text: err.message || 'Terjadi kesalahan eksternal.'
+      });
     } finally {
       setLoading(false);
     }
